@@ -1,6 +1,4 @@
-pragma solidity ^0.4.19;
-
-import "./usingOraclize.sol";
+pragma solidity ^0.4.25;
 
 library SafeMath {
     function mul(uint256 a, uint256 b) internal pure returns (uint256) {
@@ -36,7 +34,7 @@ contract Ownable {
    * @dev The Ownable constructor sets the original `owner` of the contract to the sender
    * account.
    */
-  function Ownable() public{
+  constructor () public{
     owner = msg.sender;
   }
 
@@ -73,12 +71,7 @@ contract ERC20 {
 
 }
 
-contract CharacterOwnership {
-    function characterCreationPermissionSet(address);
-    function characterCreateByBitneyToken(address);
-}
-
-contract BTNYToken is Ownable, ERC20, usingOraclize {
+contract BTNYToken is Ownable, ERC20 {
 
     using SafeMath for uint256;
 
@@ -87,200 +80,82 @@ contract BTNYToken is Ownable, ERC20, usingOraclize {
     string public symbol = "BTNY";                  //Token symbol
     uint256 public decimals = 18;
 
-    uint256 public _totalSupply = 1000000000e18;
-    uint256 public _privateSaleSupply = 2000000e18;
-    uint256 public _preSale1Supply = 1000000e18;
-    uint256 public _preSale2Supply = 1000000e18;
-    uint256 public _publicSaleSupply = 1000000e18;
-
-    uint256 public _totalEth = 0;
-
-    // Address of ERC 721 Token
-    CharacterOwnership _characterOwnerShip;
+    uint256 public _totalSupply = 1000000000e18;       //100% Total Supply
 
     // Balances for each account
     mapping (address => uint256) balances;
-    mapping (address => bytes16) verifyCodes;
 
     // Owner of account approves the transfer of an amount to another account
     mapping (address => mapping(address => uint256)) allowed;
-    
-    // start and end timestamps where investments are allowed (both inclusive)
-    uint256 public privateSaleStartTime = 1529063000; 
-    uint256 public preSale1StartTime = 1529063448;
-    uint256 public preSale2StartTime = 1530359448;
-    uint256 public publicSaleStartTime = 1530445848;
-    uint256 public saleEndTime = 1532931654;
 
-    // Wallet Address of Token
-    address public multisig;
-
-    uint256 public rate = 512610;
+    // how many token units a buyer gets per wei
+    uint256 public price;
 
     event TokenPurchase(address indexed purchaser, address indexed beneficiary, uint256 value, uint256 amount);
-    event LogConstructorInitiated(string nextStep);
-    event LogPriceUpdated(string price);
-    event LogNewOraclizeQuery(string description);
 
-    function BTNYToken() public payable {
+    // Constructor
+    // @notice CBITToken Contract
+    // @return the transaction address
+    constructor () public{
         // Initial Owner Wallet Address
-        multisig = msg.sender;
-
-        balances[multisig] = _totalSupply;
-
         owner = msg.sender;
 
-        sendCompanySupplyToken(0x767f749A87bC111aafE5D6344D09A28b20751300);
-        sendStrategySupplyToken(0x767f749A87bC111aafE5D6344D09A28b20751300);
-        sendMarketingSupplyToken(0x767f749A87bC111aafE5D6344D09A28b20751300);
-        sendCSRSupplyToken(0x767f749A87bC111aafE5D6344D09A28b20751300);
-        sendBountySupplyToken(0xa9103591BBf28b6Cc7d17229Ee475c2B45b3299A);
-
-        LogConstructorInitiated("Constructor was initiated. Call 'updatePrice()' to send the Oraclize Query.");
-        updatePrice();
+        balances[owner] = _totalSupply;
     }
 
-    function __callback(bytes32 myid, string result) {
-        if (msg.sender != oraclize_cbAddress()) revert();
-        rate = parseInt(result, 3);
-        LogPriceUpdated(result);
-        updatePrice();
-    }
-
-    function updatePrice() payable {
-        if (oraclize_getPrice("URL") > this.balance) {
-            LogNewOraclizeQuery("Oraclize query was NOT sent, please add some ETH to cover for the query fee");
-        } else {
-            LogNewOraclizeQuery("Oraclize query was sent, standing by for the answer..");
-            oraclize_query(14400, "URL", "json(https://api.infura.io/v1/ticker/ethusd).bid");
-        }
-    }
-
+    // Payable method
+    // @notice Anyone can buy the tokens on tokensale by paying ether
     function () external payable {
         tokensale(msg.sender);
     }
 
-    function tokensale(address recipient, bytes16 code) public payable {
-        require(recipient != 0x0);
-    
+    // @notice tokensale
+    // @param recipient The address of the recipient
+    // @return the transaction address and send the event as Transfer
+    function tokensale(address recipient) public payable {
+        price = getPrice();
+        require(price != 0 && recipient != 0x0);
         uint256 weiAmount = msg.value;
-        uint256 tokenToSend = weiAmount.mul(getPrice());
+        uint256 tokenToSend = weiAmount.mul(price);
         
-        require(tokenToSend > 0);
-        if ((privateSaleStartTime < now) && (now < preSale1StartTime)) {
-            require((_privateSaleSupply >= tokenToSend) && (tokenToSend < 1000.mul(1e18)));
-        } else if ((preSale1StartTime < now) && (now < preSale2StartTime)) {
-            require(_preSale1Supply >= tokenToSend);
-        } else if ((preSale2StartTime < now) && (now < publicSaleStartTime)) {
-            require(_preSale2Supply >= tokenToSend);
-        } else if (publicSaleStartTime < now) {
-            require(_publicSaleSupply >= tokenToSend);
-        }
-        
-        balances[multisig] = balances[multisig].sub(tokenToSend);
+        balances[owner] = balances[owner].sub(tokenToSend);
         balances[recipient] = balances[recipient].add(tokenToSend);
-        if (balances[recipient] >= 500.mul(1e18)) {
-            verifyCodes[recipient] = code;
-        }
-        _totalEth = _totalEth.add(weiAmount);
-        
 
-        if ((privateSaleStartTime < now) && (now < preSale1StartTime)) {
-            _privateSaleSupply = _privateSaleSupply.sub(tokenToSend);
-        } else if ((preSale1StartTime < now) && (now < preSale2StartTime)) {
-            _preSale1Supply = _preSale1Supply.sub(tokenToSend);
-        } else if ((preSale2StartTime < now) && (now < publicSaleStartTime)) {
-            _preSale2Supply = _preSale2Supply.sub(tokenToSend);
-        } else if (publicSaleStartTime < now) {
-            _publicSaleSupply = _publicSaleSupply.sub(tokenToSend);
-        }
-
-        _characterOwnerShip.characterCreationPermissionSet(recipient);
-        _characterOwnerShip.characterCreateByBitneyToken(recipient);
-
-        multisig.transfer(msg.value);
-        TokenPurchase(msg.sender, recipient, weiAmount, tokenToSend);
+        owner.transfer(msg.value);
+        emit TokenPurchase(msg.sender, recipient, weiAmount, tokenToSend);
     }
 
-    function sendCompanySupplyToken(address to) public onlyOwner {
-        require (to != 0x0);
-
-        balances[multisig] = balances[multisig].sub(2000000e18);
-        balances[to] = balances[to].add(2000000e18);
-        Transfer(multisig, to, 2000000e18);
-    }
-
-    function sendStrategySupplyToken(address to) public onlyOwner {
-        require (to != 0x0);
-
-        balances[multisig] = balances[multisig].sub(1500000e18);
-        balances[to] = balances[to].add(1500000e18);
-        Transfer(multisig, to, 1500000e18);
-    }
-    
-    function sendMarketingSupplyToken(address to) public onlyOwner {
-        require (to != 0x0);
-
-        balances[multisig] = balances[multisig].sub(1000000e18);
-        balances[to] = balances[to].add(1000000e18);
-        Transfer(multisig, to, 1000000e18);
-    }
-    
-    function sendCSRSupplyToken(address to) public onlyOwner {
-        require (to != 0x0);
-
-        balances[multisig] = balances[multisig].sub(400000e18);
-        balances[to] = balances[to].add(400000e18);
-        Transfer(multisig, to, 400000e18);
-    }
-
-    function sendBountySupplyToken(address to) public onlyOwner {
-        require (to != 0x0);
-
-        balances[multisig] = balances[multisig].sub(100000e18);
-        balances[to] = balances[to].add(100000e18);
-        Transfer(multisig, to, 100000e18);    
-    }
-
+    // @return total tokens supplied
     function totalSupply() public constant returns (uint256) {
         return _totalSupply;
     }
     
-    function privateSaleSupply() public view returns (uint256) {
-        return _privateSaleSupply;
-    }
-
-    function preSale1Supply() public view returns (uint256) {
-        return _preSale1Supply;
-    }
-
-    function preSale2Supply() public view returns (uint256) {
-        return _preSale2Supply;
-    }
-
-    function publicSaleSupply() public view returns (uint256) {
-        return _publicSaleSupply;
-    }
-
-    function getVerifyCode() public view returns (bytes16) {
-        return verifyCodes[msg.sender];
-    }
-
+    // What is the balance of a particular account?
+    // @param who The address of the particular account
+    // @return the balanace the particular account
     function balanceOf(address who) public constant returns (uint256) {
         return balances[who];
     }
 
+    // @notice send `value` token to `to` from `msg.sender`
+    // @param to The address of the recipient
+    // @param value The amount of token to be transferred
+    // @return the transaction address and send the event as Transfer
     function transfer(address to, uint256 value) public returns (bool success)  {
-        uint256 transferValue = value.mul(1e18);
         require (
-            balances[msg.sender] >= transferValue && transferValue > 0
+            balances[msg.sender] >= value && value > 0
         );
-        balances[msg.sender] = balances[msg.sender].sub(transferValue);
-        balances[to] = balances[to].add(transferValue);
-        Transfer(msg.sender, to, transferValue);
+        balances[msg.sender] = balances[msg.sender].sub(value);
+        balances[to] = balances[to].add(value);
+        emit Transfer(msg.sender, to, value);
         return true;
     }
 
+    // @notice send `value` token to `to` from `from`
+    // @param from The address of the sender
+    // @param to The address of the recipient
+    // @param value The amount of token to be transferred
+    // @return the transaction address and send the event as Transfer
     function transferFrom(address from, address to, uint256 value) public returns (bool success)  {
         require (
             allowed[from][msg.sender] >= value && balances[from] >= value && value > 0
@@ -288,49 +163,33 @@ contract BTNYToken is Ownable, ERC20, usingOraclize {
         balances[from] = balances[from].sub(value);
         balances[to] = balances[to].add(value);
         allowed[from][msg.sender] = allowed[from][msg.sender].sub(value);
-        Transfer(from, to, value);
+        emit Transfer(from, to, value);
         return true;
     }
 
+    // Allow spender to withdraw from your account, multiple times, up to the value amount.
+    // If this function is called again it overwrites the current allowance with value.
+    // @param spender The address of the sender
+    // @param value The amount to be approved
+    // @return the transaction address and send the event as Approval
     function approve(address spender, uint256 value) public returns (bool success)  {
         require (balances[msg.sender] >= value && value > 0);
         allowed[msg.sender][spender] = value;
-        Approval(msg.sender, spender, value);
+        emit Approval(msg.sender, spender, value);
         return true;
     }
 
+    // Check the allowed value for the spender to withdraw from owner
+    // @param owner The address of the owner
+    // @param spender The address of the spender
+    // @return the amount which spender is still allowed to withdraw from owner
     function allowance(address _owner, address spender) public constant returns (uint256) {
         return allowed[_owner][spender];
     }
     
-    function getPrice() public view returns (uint256 result) {
-        uint _price;
-        require (now < saleEndTime);
-        if ((privateSaleStartTime < now) && (now < preSale1StartTime)) {
-            _price = 0;
-        } else if ((preSale1StartTime < now) && (now < preSale2StartTime)) {
-            _price = rate.div(64);
-        } else if ((preSale2StartTime < now) && (now < publicSaleStartTime)) {
-            _price = rate.div(72);
-        } else if (publicSaleStartTime < now) {
-            _price = rate.div(80);
-        }
-        return _price;
-    }
-
-    function setDates(uint256 privateTime, uint256 pre1Time, uint256 pre2Time, uint256 publicTime, uint256 endTime) public onlyOwner {
-        privateSaleStartTime = privateTime;
-        preSale1StartTime = pre1Time;
-        preSale2StartTime = pre2Time;
-        publicSaleStartTime = publicTime;
-        saleEndTime = endTime;
-    }
-
-    function getDates() public view returns(uint256, uint256, uint256, uint256, uint256) {
-        return (privateSaleStartTime, preSale1StartTime, preSale2StartTime, publicSaleStartTime, saleEndTime);
-    }
-
-    function setERC721Address(address contractAddress) public onlyOwner {
-        _characterOwnerShip = CharacterOwnership(contractAddress);
+    // Get current price of a Token
+    // @return the price or token value for a ether
+    function getPrice() public pure returns (uint256 result) {
+        return 0;
     }
 }
